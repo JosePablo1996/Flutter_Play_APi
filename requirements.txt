@@ -1,0 +1,42 @@
+# Framework principal
+fastapi==0.115.6
+uvicorn==0.34.0
+
+# Base de datos Supabase
+supabase==2.7.0
+
+# Variables de entorno
+python-dotenv==1.0.1
+
+# Validación de datos
+pydantic==2.10.4
+email-validator==2.2.0
+
+# Procesamiento de formularios
+python-multipart==0.0.20
+
+# Cliente HTTP
+httpx==0.27.2
+
+# Autenticación JWT
+python-jose[cryptography]==3.3.0
+
+# Hashing de contraseñas
+passlib[bcrypt]==1.7.4
+
+# Envío de emails
+sendgrid==6.12.3
+
+# ============================================
+# 2FA (Autenticación de Dos Factores)
+# ============================================
+pyotp==2.9.0              # Generación y verificación de códigos TOTP
+qrcode==7.4.2             # Generación de códigos QR
+pillow==10.4.0            # Procesamiento de imágenes (requerido por qrcode)
+
+# ============================================
+# Utilidades adicionales (opcionales)
+# ============================================
+# python-dateutil==2.9.0   # Manejo avanzado de fechas
+# pytest==8.3.4            # Testing
+# pytest-asyncio==0.24.0   # Testing asíncrono

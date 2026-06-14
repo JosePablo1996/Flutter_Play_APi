@@ -1,5 +1,40 @@
-
-# Secretos
+# Archivos sensibles específicos de tu proyecto
 backend/.env
 backend/Variables_De_Entorno_backend.txt
-backend/.env.backup
+.env
+.env.*
+*_De_Entorno*.txt
+
+# Python
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Base de datos
+*.db
+*.sqlite
+*.sql
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archivos de respaldo
+*.bak
+*.backup
+*~
