@@ -57,7 +57,6 @@ class SecurityChangeResponse(BaseModel):
     status: str
     created_at: datetime
 
-
 # ============================================
 # FUNCIONES AUXILIARES
 # ============================================
@@ -622,12 +621,18 @@ async def get_security_changes(
         return []
 
 
-@router.get("/stats")
+# ============================================
+# ✅ ENDPOINT: ESTADÍSTICAS DE SEGURIDAD (CON has_passkey CORREGIDO)
+# ============================================
+
+@router.get("/security-stats")
 async def get_security_stats(current_user: dict = Depends(get_current_user)):
-    """Obtener estadísticas de seguridad del usuario"""
+    """Obtener estadísticas de seguridad del usuario (total logins, dispositivos únicos, último login, passkey)"""
     
     user_id = current_user.get("sub")
     email = current_user.get("email")
+    
+    print(f"📊 [SECURITY_STATS] Solicitando estadísticas para: {email} (ID: {user_id})")
     
     supabase = get_supabase_admin()
     
@@ -638,6 +643,8 @@ async def get_security_stats(current_user: dict = Depends(get_current_user)):
             .eq("user_id", user_id)\
             .execute()
         
+        total_logins = login_count.count if hasattr(login_count, 'count') else 0
+        
         # Contar dispositivos únicos
         devices = supabase.table("login_history")\
             .select("device_name")\
@@ -646,7 +653,7 @@ async def get_security_stats(current_user: dict = Depends(get_current_user)):
         
         unique_devices = len(set([d.get("device_name") for d in devices.data if d.get("device_name")]))
         
-        # Último login
+        # Obtener último login
         last_login_data = supabase.table("login_history")\
             .select("*")\
             .eq("user_id", user_id)\
@@ -656,45 +663,92 @@ async def get_security_stats(current_user: dict = Depends(get_current_user)):
         
         last_login = None
         if last_login_data.data:
-            last_login = last_login_data.data[0]
+            last_login_item = last_login_data.data[0]
+            last_login = {
+                "date": last_login_item.get("created_at"),
+                "device": last_login_item.get("device_name"),
+                "ip": last_login_item.get("ip_address")
+            }
         
-        # Contar sesiones activas
-        sessions_count = supabase.table("user_sessions")\
-            .select("id", count="exact")\
-            .eq("user_id", user_id)\
-            .execute()
+        print(f"✅ [SECURITY_STATS] Usuario {email} - Total logins: {total_logins}, Dispositivos únicos: {unique_devices}")
         
-        active_sessions = sessions_count.count if hasattr(sessions_count, 'count') else 0
+        # ============================================
+        # ✅ CONSULTA DE PASSKEY - CORREGIDA
+        # ============================================
+        has_passkey = False
+        try:
+            # Consultar passkeys del usuario
+            passkey_response = supabase.table("passkeys")\
+                .select("id", count="exact")\
+                .eq("user_id", user_id)\
+                .execute()
+            
+            # Depuración
+            print(f"🔍 [SECURITY_STATS] passkey_response.data: {passkey_response.data}")
+            print(f"🔍 [SECURITY_STATS] passkey_response.count: {passkey_response.count if hasattr(passkey_response, 'count') else 'No count'}")
+            
+            # Verificar si hay datos
+            if passkey_response.data and len(passkey_response.data) > 0:
+                has_passkey = True
+            elif hasattr(passkey_response, 'count') and passkey_response.count:
+                has_passkey = passkey_response.count > 0
+            
+            print(f"✅ [SECURITY_STATS] Usuario {email} - Passkey registrada: {has_passkey}")
+        except Exception as e:
+            print(f"❌ [SECURITY_STATS] Error consultando passkeys: {str(e)}")
+            has_passkey = False
+        
+        # Obtener estado de 2FA
+        profile_response = supabase.table("profiles").select("two_factor_enabled").eq("id", user_id).execute()
+        two_factor_enabled = False
+        if profile_response.data:
+            two_factor_enabled = profile_response.data[0].get("two_factor_enabled", False)
         
         # Calcular puntuación de seguridad
         security_score = 40  # Base
-        if last_login_data.data:
+        if total_logins > 0:
             security_score += 10
+        if unique_devices <= 2:
+            security_score += 20
+        elif unique_devices <= 5:
+            security_score += 10
+        if two_factor_enabled:
+            security_score += 30
+        if has_passkey:
+            security_score += 20
         
+        security_score = min(security_score, 100)
+        
+        # Recomendaciones
+        recommendations = []
+        if not two_factor_enabled:
+            recommendations.append("Activa la autenticación de dos factores (2FA) para mayor seguridad")
+        if not has_passkey:
+            recommendations.append("Registra una passkey para iniciar sesión sin contraseña")
+        if unique_devices > 3:
+            recommendations.append("Revisa tus sesiones activas y cierra las que no reconozcas")
+        if total_logins == 0:
+            recommendations.append("Inicia sesión para comenzar a registrar tu actividad")
+        
+        # Respuesta final
         return {
-            "total_logins": login_count.count if hasattr(login_count, 'count') else 0,
+            "total_logins": total_logins,
             "unique_devices": unique_devices,
-            "active_sessions": active_sessions,
-            "last_login": {
-                "date": last_login.get("created_at") if last_login else None,
-                "device": last_login.get("device_name") if last_login else None,
-                "ip": last_login.get("ip_address") if last_login else None
-            } if last_login else None,
+            "last_login": last_login,
             "security_score": security_score,
-            "recommendations": [
-                "Activa la autenticación de dos factores (2FA)" if security_score < 70 else None,
-                "Revisa las sesiones activas periódicamente",
-                "Cierra sesiones en dispositivos que no reconoces"
-            ]
+            "recommendations": recommendations,
+            "has_passkey": has_passkey  # ✅ CLAVE IMPORTANTE
         }
         
     except Exception as e:
-        print(f"❌ [GET_SECURITY_STATS] Error: {str(e)}")
+        print(f"❌ [SECURITY_STATS] Error general: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             "total_logins": 0,
             "unique_devices": 0,
-            "active_sessions": 0,
             "last_login": None,
             "security_score": 0,
-            "recommendations": []
+            "recommendations": ["No se pudieron cargar las estadísticas de seguridad"],
+            "has_passkey": False
         }

@@ -14,7 +14,7 @@ app = FastAPI(
     ### Caracteristicas principales:
     * **Autenticacion**: Registro, login tradicional, y login con OTP
     * **2FA**: Autenticacion de Dos Factores con Google Authenticator
-    * **Passkeys**: Autenticacion biometrica con Windows Hello, Face ID, Touch ID
+    * **Passkeys**: Autenticacion biometrica mit Windows Hello, Face ID, Touch ID
     * **Gestion de gastos**: CRUD completo de gastos
     * **Categorias**: Categorias predefinidas y personalizables
     * **Presupuestos**: Control de presupuestos por categoria
@@ -22,6 +22,24 @@ app = FastAPI(
     * **Estadisticas**: Analisis y reportes de gastos
     * **Seguridad**: Recuperacion de contrasena con OTP
     * **Sesiones activas**: Gestion de dispositivos conectados
+    * **Historial de accesos**: Registro completo de inicios de sesion
+
+    ### 🆕 Novedades v2.6.0:
+
+    #### Passkey con registro completo
+    - Los inicios de sesion con Passkey ahora se registran en `login_history` (tipo `passkey`)
+    - Creacion automatica de sesiones en `user_sessions`
+    - Registro de actividad en `activity_log`
+    - Alertas por email para nuevos dispositivos
+
+    #### Estadisticas de seguridad mejoradas
+    - Nuevo campo `has_passkey` en `/sessions/security-stats`
+    - Mayor puntuacion de seguridad para usuarios con Passkey (+20 puntos)
+    - Recomendaciones personalizadas para mejorar la seguridad
+
+    #### Mejoras en WebAuthn
+    - Endpoint `/webauthn/login/begin-without-email` funcionando correctamente
+    - Mejor manejo de errores en autenticacion biometrica
 
     ### Endpoints disponibles:
 
@@ -29,13 +47,13 @@ app = FastAPI(
     | Metodo | Endpoint | Descripcion |
     |--------|----------|-------------|
     | POST | `/auth/register` | Registrar nuevo usuario |
-    | POST | `/auth/login` | Iniciar sesion con email/contrase?a |
+    | POST | `/auth/login` | Iniciar sesion con email/contrasena |
     | POST | `/auth/login-otp-request` | Solicitar codigo OTP |
     | POST | `/auth/login-with-otp` | Iniciar sesion con OTP |
     | POST | `/auth/request-otp` | Solicitar OTP para recuperacion |
     | POST | `/auth/verify-otp` | Verificar codigo OTP |
-    | POST | `/auth/reset-password-with-otp` | Restablecer contrase?a con OTP |
-    | POST | `/auth/change-password` | Cambiar contrase?a (requiere auth) |
+    | POST | `/auth/reset-password-with-otp` | Restablecer contrasena con OTP |
+    | POST | `/auth/change-password` | Cambiar contrasena (requiere auth) |
     | GET | `/auth/me` | Obtener usuario actual |
     | POST | `/auth/logout` | Cerrar sesion |
 
@@ -54,8 +72,10 @@ app = FastAPI(
     | POST | `/webauthn/register/begin` | Iniciar registro de passkey |
     | POST | `/webauthn/register/complete` | Completar registro de passkey |
     | POST | `/webauthn/login/begin` | Iniciar autenticacion con passkey |
+    | POST | `/webauthn/login/begin-without-email` | Iniciar autenticacion sin email 🆕 |
     | POST | `/webauthn/login/complete` | Completar autenticacion con passkey |
     | GET | `/webauthn/credentials` | Listar passkeys del usuario |
+    | GET | `/webauthn/status` | Obtener estado de passkeys 🆕 |
     | DELETE | `/webauthn/credentials/{id}` | Eliminar passkey |
 
     #### Gastos (`/api/v1/expenses`)
@@ -102,13 +122,18 @@ app = FastAPI(
     | GET | `/sessions/activity` | Obtener historial de actividad |
     | GET | `/sessions/login-history` | Obtener historial de logins |
     | GET | `/sessions/security-changes` | Obtener cambios de seguridad |
-    | GET | `/sessions/stats` | Obtener estadisticas de seguridad |
+    | GET | `/sessions/security-stats` | Obtener estadisticas de seguridad 🆕 |
 
     ### Autenticacion:
     La mayoria de los endpoints requieren un token JWT en el header:
     `Authorization: Bearer <token>`
+
+    ### 🆕 Novedades de seguridad (v2.6.0):
+    - **Registro completo de Passkey**: Ahora cada inicio de sesion con Passkey queda registrado
+    - **Estadisticas mejoradas**: El endpoint `/security-stats` ahora incluye `has_passkey`
+    - **Mejor puntuacion**: Los usuarios con Passkey obtienen +20 puntos en su puntuacion de seguridad
     """,
-    version="2.5.0",
+    version="2.6.0",
     contact={
         "name": "Soporte Flutter Play",
         "email": "soporte@flutterplay.com",
@@ -155,7 +180,7 @@ app.include_router(profile.router, prefix=API_PREFIX)
 app.include_router(two_factor.router, prefix=API_PREFIX)
 app.include_router(sessions.router, prefix=API_PREFIX)
 app.include_router(webauthn.router, prefix=API_PREFIX)
-app.include_router(categories.router, prefix=API_PREFIX)  # ? NUEVO: Router de categorias
+app.include_router(categories.router, prefix=API_PREFIX)
 
 # ============================================
 # ENDPOINTS DE PRUEBA
@@ -170,7 +195,7 @@ async def root():
     """
     return {
         "message": "API de Flutter Play - Mi Banca Universitaria funcionando correctamente",
-        "version": "2.5.0",
+        "version": "2.6.0",
         "status": "online",
         "endpoints": {
             "auth": "/api/v1/auth",
@@ -192,4 +217,4 @@ async def health_check():
 
     Endpoint para verificar el estado del servidor.
     """
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2.6.0"}
