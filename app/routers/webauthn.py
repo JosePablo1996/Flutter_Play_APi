@@ -72,7 +72,7 @@ def to_base64url(data: bytes) -> str:
 _challenges_store: Dict[str, Dict[str, Any]] = {}
 
 # ============================================
-# ENDPOINTS
+# ENDPOINTS DE REGISTRO
 # ============================================
 
 @router.post("/register/begin", response_model=RegistrationBeginResponse)
@@ -180,7 +180,7 @@ async def register_complete(
             'user_id': user_id,
             'credential_id': credential_id,
             'credential_data': json.dumps(credential_data),
-            'name': f"Windows Hello - {datetime.now().strftime('%d/%m/%Y')}",
+            'name': f"Passkey - {datetime.now().strftime('%d/%m/%Y')}",
             'created_at': datetime.now().isoformat(),
             'last_used_at': None
         }).execute()
@@ -190,17 +190,19 @@ async def register_complete(
     return {"success": True, "credentialId": credential_id}
 
 
+# ============================================
+# ENDPOINTS DE AUTENTICACIÓN CON PASSKEY
+# ============================================
+
 @router.post("/login/begin", response_model=AuthenticationBeginResponse)
 async def login_begin():
-    """Inicia la autenticacion con passkey - NO necesita email"""
+    """Inicia la autenticación con passkey - NO necesita email"""
     
-    print(f"🔐 [WebAuthn] Iniciando autenticacion (sin email)")
+    print(f"🔐 [WebAuthn] Iniciando autenticación (sin email)")
     
     supabase = get_supabase_client()
     
     passkeys_result = supabase.table('passkeys').select('credential_id, user_id').execute()
-    
-    print(f"🔐 [WebAuthn] Total passkeys encontradas: {len(passkeys_result.data)}")
     
     if not passkeys_result.data:
         raise HTTPException(status_code=400, detail="No hay passkeys registradas")
@@ -228,7 +230,53 @@ async def login_begin():
         "userVerification": "required"
     }
     
-    print(f"🔐 [WebAuthn] Opciones de autenticacion preparadas con {len(allow_credentials)} credenciales")
+    print(f"🔐 [WebAuthn] Opciones de autenticación preparadas con {len(allow_credentials)} credenciales")
+    
+    return AuthenticationBeginResponse(publicKey=public_key)
+
+
+@router.post("/login/begin-without-email", response_model=AuthenticationBeginResponse)
+async def login_begin_without_email():
+    """
+    Inicia autenticación con passkey sin necesidad de email.
+    Este endpoint NO requiere autenticación previa.
+    """
+    
+    print(f"🔐 [WebAuthn] Iniciando autenticación sin email (endpoint específico)")
+    
+    supabase = get_supabase_client()
+    
+    passkeys_result = supabase.table('passkeys').select('credential_id, user_id').execute()
+    
+    if not passkeys_result.data:
+        raise HTTPException(status_code=400, detail="No hay passkeys registradas")
+    
+    print(f"🔐 [WebAuthn] Total passkeys encontradas: {len(passkeys_result.data)}")
+    
+    challenge = generate_challenge()
+    
+    _challenges_store[f"login_{challenge}"] = {
+        'challenge': challenge,
+        'created_at': datetime.now().isoformat()
+    }
+    
+    allow_credentials = []
+    for pk in passkeys_result.data:
+        allow_credentials.append({
+            "id": pk['credential_id'],
+            "type": "public-key",
+            "transports": ["internal"]
+        })
+    
+    public_key = {
+        "challenge": challenge,
+        "rpId": "localhost",
+        "allowCredentials": allow_credentials,
+        "timeout": 60000,
+        "userVerification": "required"
+    }
+    
+    print(f"🔐 [WebAuthn] Opciones de autenticación preparadas con {len(allow_credentials)} credenciales")
     
     return AuthenticationBeginResponse(publicKey=public_key)
 
@@ -265,8 +313,9 @@ async def login_complete(request: AuthenticationCompleteRequest):
     currency = user.get('currency', 'USD')
     monthly_budget = user.get('monthly_budget', 1000)
     two_factor_enabled = user.get('two_factor_enabled', False)
+    user_role = user.get('role', 'user')
     
-    print(f"🔐 [WebAuthn] Usuario identificado: {email}")
+    print(f"🔐 [WebAuthn] Usuario identificado: {email}, Rol: {user_role}")
     
     # Actualizar ultima vez que se uso
     supabase.table('passkeys').update({
@@ -275,19 +324,16 @@ async def login_complete(request: AuthenticationCompleteRequest):
     
     print(f"✅ Autenticacion completada para: {email}")
     
-    # ============================================
-    # GENERAR TOKEN CON EMAIL INCLUIDO
-    # ============================================
-    # El token debe incluir el email para que /auth/me funcione correctamente
+    # Generar token con email y rol incluidos
     access_token = create_access_token(data={
         "sub": user_id,
         "email": email,
-        "full_name": full_name
+        "role": user_role
     })
     
     print(f"✅ Token generado para usuario: {user_id}")
     print(f"   Email incluido en token: {email}")
-    print(f"   Full name incluido: {full_name}")
+    print(f"   Rol incluido en token: {user_role}")
     
     # Devolver respuesta con todos los campos
     return LoginCompleteResponse(
@@ -305,6 +351,10 @@ async def login_complete(request: AuthenticationCompleteRequest):
         )
     )
 
+
+# ============================================
+# ENDPOINTS DE GESTIÓN DE CREDENCIALES
+# ============================================
 
 @router.get("/credentials", response_model=List[CredentialResponse])
 async def get_credentials(current_user: dict = Depends(get_current_user)):
@@ -333,6 +383,35 @@ async def get_credentials(current_user: dict = Depends(get_current_user)):
     print(f"✅ [WebAuthn] Devolviendo {len(credentials)} credencial(es)")
     
     return credentials
+
+
+@router.get("/status")
+async def get_passkey_status(current_user: dict = Depends(get_current_user)):
+    """Obtiene el estado de las passkeys del usuario (si tiene o no)"""
+    
+    user_id = current_user.get('id')
+    user_email = current_user.get('email')
+    
+    print(f"🔐 [WebAuthn] Verificando estado de passkeys para: {user_email}")
+    
+    supabase = get_supabase_client()
+    
+    result = supabase.table('passkeys').select('credential_id, name, created_at, last_used_at').eq('user_id', user_id).execute()
+    
+    credentials = []
+    for row in result.data:
+        credentials.append({
+            "id": row['credential_id'],
+            "name": row.get('name', 'Passkey'),
+            "createdAt": row.get('created_at', datetime.now().isoformat()),
+            "lastUsedAt": row.get('last_used_at') or row.get('created_at', datetime.now().isoformat())
+        })
+    
+    return {
+        "enabled": len(credentials) > 0,
+        "count": len(credentials),
+        "credentials": credentials
+    }
 
 
 @router.delete("/credentials/{credential_id}")
