@@ -416,7 +416,7 @@ def build_user_response(profile_data: dict, user_id: str, email: str) -> dict:
         "banner_url": profile_data.get("banner_url"),
         "currency": profile_data.get("currency", "USD"),
         "monthly_budget": float(profile_data.get("monthly_budget", 1000)),
-        "role": profile_data.get("role", "user"),  # 👈 INCLUIR EL ROL
+        "role": profile_data.get("role", "user"),
         "two_factor_enabled": profile_data.get("two_factor_enabled", False),
         "created_at": profile_data.get("created_at"),
         "updated_at": profile_data.get("updated_at")
@@ -477,7 +477,7 @@ async def register(request: Request, user_data: UserRegister):
             "full_name": user_data.full_name,
             "student_id": user_data.student_id,
             "university": user_data.university,
-            "role": "user",  # 👈 ROL POR DEFECTO
+            "role": "user",
             "two_factor_enabled": False,
             "two_factor_secret": None,
             "created_at": datetime.utcnow().isoformat(),
@@ -598,11 +598,11 @@ async def login(request: Request, user_data: UserLogin):
     except Exception as e:
         print(f"⚠️ [LOGIN] Error obteniendo perfil: {str(e)}")
     
-    # 👈 OBTENER EL ROL DEL PERFIL
+    # OBTENER EL ROL DEL PERFIL
     user_role = profile.get("role", "user")
     print(f"🔐 [LOGIN] Rol del usuario: {user_role}")
     
-    # 👈 FUNCIÓN PARA CONSTRUIR EL OBJETO USER
+    # FUNCIÓN PARA CONSTRUIR EL OBJETO USER
     def build_user_object():
         return {
             "id": user_id,
@@ -612,7 +612,7 @@ async def login(request: Request, user_data: UserLogin):
             "banner_url": profile.get("banner_url"),
             "currency": profile.get("currency", "USD"),
             "monthly_budget": float(profile.get("monthly_budget", 1000)),
-            "role": user_role  # 👈 INCLUIR EL ROL
+            "role": user_role
         }
     
     # VERIFICAR 2FA
@@ -640,15 +640,23 @@ async def login(request: Request, user_data: UserLogin):
                 status="pending"
             )
             
-            # 👈 DEVOLVER EL USUARIO COMPLETO CON ROL
             user_obj = build_user_object()
             
-            return {
-                "requires_2fa": True,
-                "temp_token": temp_token,
-                "message": "Se requiere autenticación de dos factores",
-                "user": user_obj  # 👈 INCLUYE role
-            }
+            # Devolver TokenResponse correctamente formado
+            return TokenResponse(
+                access_token=None,
+                token_type="bearer",
+                requires_2fa=True,
+                temp_token=temp_token,
+                message="Se requiere autenticación de dos factores",
+                user=UserResponse(
+                    id=user_id,
+                    email=email,
+                    full_name=profile.get("full_name"),
+                    avatar_url=profile.get("avatar_url"),
+                    role=user_role
+                )
+            )
     
     # Login exitoso sin 2FA
     access_token = create_access_token(data={"sub": user_id, "email": email, "role": user_role})
@@ -657,9 +665,7 @@ async def login(request: Request, user_data: UserLogin):
     # Crear sesión
     await create_user_session(request, user_id, email, access_token)
     
-    # ============================================
     # ALERTA PARA NUEVO DISPOSITIVO
-    # ============================================
     try:
         await send_new_device_alert(user_id, client_info, request)
         print(f"✅ [LOGIN] Alerta de nuevo dispositivo verificada")
@@ -687,7 +693,6 @@ async def login(request: Request, user_data: UserLogin):
     
     print(f"✅ [LOGIN] Login completado para: {email}")
     
-    # 👈 CONSTRUIR RESPUESTA CON ROL
     user_obj = build_user_object()
     
     return TokenResponse(
@@ -703,7 +708,7 @@ async def login(request: Request, user_data: UserLogin):
             banner_url=profile.get("banner_url"),
             currency=profile.get("currency", "USD"),
             monthly_budget=float(profile.get("monthly_budget", 1000)),
-            role=user_role  # 👈 INCLUIR EL ROL
+            role=user_role
         )
     )
 
@@ -763,7 +768,7 @@ async def login_otp_request(request: Request, email: str):
                 "email": email,
                 "full_name": user_name,
                 "avatar_url": user_avatar,
-                "role": user_role  # 👈 INCLUIR EL ROL
+                "role": user_role
             }
         }
     else:
@@ -773,9 +778,13 @@ async def login_otp_request(request: Request, email: str):
         )
 
 
+# ============================================
+# LOGIN WITH OTP (CORREGIDO - VERSIÓN FINAL)
+# ============================================
+
 @router.post("/login-with-otp", response_model=TokenResponse)
 async def login_with_otp(request: Request, email: str, otp_code: str):
-    """Iniciar sesión con código OTP"""
+    """Iniciar sesión con código OTP (soporta 2FA correctamente)"""
     
     client_info = get_client_info(request)
     storage_key = f"login_{email}"
@@ -819,7 +828,9 @@ async def login_with_otp(request: Request, email: str, otp_code: str):
     
     user_role = profile.get("role", "user")
     
-    # Verificar 2FA
+    # ============================================
+    # CASO 1: Usuario con 2FA activado
+    # ============================================
     if profile.get("two_factor_enabled", False):
         secret = profile.get("two_factor_secret")
         if secret:
@@ -831,26 +842,44 @@ async def login_with_otp(request: Request, email: str, otp_code: str):
                 "expires_at": datetime.utcnow() + timedelta(minutes=5),
                 "attempts": 0
             }
-            return {
-                "requires_2fa": True,
-                "temp_token": temp_token,
-                "message": "Se requiere autenticación de dos factores",
-                "user": {
-                    "id": user_id,
-                    "email": email,
-                    "full_name": profile.get("full_name", email.split('@')[0]),
-                    "avatar_url": profile.get("avatar_url"),
-                    "role": user_role
-                }
-            }
+            
+            print(f"✅ [LOGIN-OTP] Usuario requiere 2FA - Token temporal generado")
+            
+            # Registrar intento de 2FA pendiente
+            await log_login_history(
+                user_id=user_id,
+                email=email,
+                login_type="otp_2fa_pending",
+                ip_address=client_info["ip_address"],
+                user_agent=client_info["user_agent"],
+                device_info=client_info,
+                status="pending"
+            )
+            
+            # ✅ CORRECCIÓN: Devolver TokenResponse en lugar de dict
+            return TokenResponse(
+                access_token=None,
+                token_type="bearer",
+                requires_2fa=True,
+                temp_token=temp_token,
+                message="Se requiere autenticación de dos factores",
+                user=UserResponse(
+                    id=user_id,
+                    email=email,
+                    full_name=profile.get("full_name", email.split('@')[0]),
+                    avatar_url=profile.get("avatar_url"),
+                    role=user_role
+                )
+            )
     
+    # ============================================
+    # CASO 2: Usuario sin 2FA (flujo normal)
+    # ============================================
     access_token = create_access_token(data={"sub": user_id, "email": email, "role": user_role})
     
     await create_user_session(request, user_id, email, access_token)
     
-    # ============================================
     # ALERTA PARA NUEVO DISPOSITIVO
-    # ============================================
     try:
         await send_new_device_alert(user_id, client_info, request)
         print(f"✅ [LOGIN-OTP] Alerta de nuevo dispositivo verificada")
@@ -890,7 +919,7 @@ async def login_with_otp(request: Request, email: str, otp_code: str):
             banner_url=profile.get("banner_url"),
             currency=profile.get("currency", "USD"),
             monthly_budget=float(profile.get("monthly_budget", 1000)),
-            role=user_role  # 👈 INCLUIR EL ROL
+            role=user_role
         )
     )
 
@@ -976,7 +1005,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         banner_url=profile.get("banner_url"),
         currency=profile.get("currency", "USD"),
         monthly_budget=float(profile.get("monthly_budget", 1000)),
-        role=user_role  # 👈 INCLUIR EL ROL
+        role=user_role
     )
 
 

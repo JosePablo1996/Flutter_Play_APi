@@ -33,7 +33,7 @@ class UserResponse(BaseModel):
     banner_url: Optional[str] = None
     currency: str = "USD"
     monthly_budget: float = 1000.0
-    role: str = "user"  # 👈 NUEVO: rol del usuario (admin/user)
+    role: str = "user"
     two_factor_enabled: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -41,12 +41,13 @@ class UserResponse(BaseModel):
 
 class TokenResponse(BaseModel):
     """Modelo de respuesta para autenticación"""
-    access_token: str
+    access_token: Optional[str] = None  # ✅ HACER OPCIONAL para soportar 2FA
     token_type: str = "bearer"
     refresh_token: Optional[str] = None
     user: UserResponse
     requires_2fa: Optional[bool] = False
     temp_token: Optional[str] = None
+    message: Optional[str] = "Autenticación exitosa"  # ✅ AGREGADO campo message
 
 
 # ============================================
@@ -134,14 +135,14 @@ class CategoryCreate(BaseModel):
     """Modelo para crear una categoría"""
     name: str = Field(..., min_length=2, max_length=50)
     icon: str = Field(..., min_length=1, max_length=10)
-    color: str = Field(..., pattern=r'^#[0-9A-Fa-f]{6}$')  # 👈 CORREGIDO: regex → pattern
+    color: str = Field(..., pattern=r'^#[0-9A-Fa-f]{6}$')
 
 
 class CategoryUpdate(BaseModel):
     """Modelo para actualizar una categoría"""
     name: Optional[str] = None
     icon: Optional[str] = None
-    color: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')  # 👈 CORREGIDO
+    color: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
 
 
 class CategoryResponse(BaseModel):

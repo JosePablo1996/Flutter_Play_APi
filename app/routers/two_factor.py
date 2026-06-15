@@ -11,6 +11,7 @@ from io import BytesIO
 from .auth import get_current_user, two_factor_tokens
 from ..database import get_supabase_client, get_supabase_admin
 from ..services.email_service import EmailService
+from ..models import TokenResponse, UserResponse
 
 router = APIRouter(prefix="/auth/2fa", tags=["2FA"])
 
@@ -463,10 +464,10 @@ async def disable_2fa(request: Request, current_user: dict = Depends(get_current
 
 
 # ============================================
-# 👇 ENDPOINT MODIFICADO PARA INCLUIR EL ROL
+# 👇 ENDPOINT CORREGIDO - VERIFY LOGIN 2FA
 # ============================================
 
-@router.post("/verify-login")
+@router.post("/verify-login", response_model=TokenResponse)
 async def verify_login_2fa(request: Request, request_data: VerifyLogin2FARequest):
     """Verificar código 2FA durante el login y crear sesión"""
     
@@ -524,26 +525,24 @@ async def verify_login_2fa(request: Request, request_data: VerifyLogin2FARequest
     # Generar nuevo token JWT
     from ..auth import create_access_token
     
-    # 👈 OBTENER EL PERFIL COMPLETO CON EL ROL
+    # OBTENER EL PERFIL COMPLETO CON EL ROL
     supabase = get_supabase_client()
     profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
     profile = profile_response.data[0] if profile_response.data else {}
     
-    # 👈 OBTENER EL ROL DEL USUARIO
+    # OBTENER EL ROL DEL USUARIO
     user_role = profile.get("role", "user")
     print(f"🔐 [2FA-VERIFY-LOGIN] Rol del usuario: {user_role}")
     
-    # 👈 CREAR TOKEN CON EL ROL INCLUIDO
+    # CREAR TOKEN CON EL ROL INCLUIDO
     access_token = create_access_token(data={
         "sub": user_id, 
         "email": email, 
-        "role": user_role  # 👈 INCLUIR ROL EN EL TOKEN
+        "role": user_role
     })
     print(f"✅ [2FA-VERIFY-LOGIN] Access token generado con rol: {user_role}")
     
-    # ============================================
     # CREAR SESIÓN DESPUÉS DE 2FA
-    # ============================================
     try:
         await create_user_session(request, user_id, email, access_token)
         print(f"✅ [2FA-VERIFY-LOGIN] Sesión creada exitosamente para {email}")
@@ -581,30 +580,37 @@ async def verify_login_2fa(request: Request, request_data: VerifyLogin2FARequest
     # Limpiar token temporal
     del two_factor_tokens[request_data.temp_token]
     
-    from ..models import UserResponse
-    
     print(f"✅ [2FA-VERIFY-LOGIN] Login completado exitosamente para: {email}")
     
-    # 👈 RESPUESTA CON ROL INCLUIDO
-    return {
-        "success": True,
-        "access_token": access_token,
-        "token_type": "bearer",
-        "refresh_token": None,
-        "user": {
-            "id": user_id,
-            "email": email,
-            "full_name": profile.get("full_name"),
-            "avatar_url": profile.get("avatar_url"),
-            "banner_url": profile.get("banner_url"),
-            "currency": profile.get("currency", "USD"),
-            "monthly_budget": float(profile.get("monthly_budget", 1000)) if profile.get("monthly_budget") else 1000.0,
-            "role": user_role  # 👈 INCLUIR EL ROL DEL USUARIO
-        }
-    }
+    # ✅ RESPUESTA CORREGIDA: Usar TokenResponse en lugar de dict
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        refresh_token=None,
+        requires_2fa=False,
+        temp_token=None,
+        message="2FA verificado correctamente",
+        user=UserResponse(
+            id=user_id,
+            email=email,
+            full_name=profile.get("full_name"),
+            avatar_url=profile.get("avatar_url"),
+            banner_url=profile.get("banner_url"),
+            currency=profile.get("currency", "USD"),
+            monthly_budget=float(profile.get("monthly_budget", 1000)) if profile.get("monthly_budget") else 1000.0,
+            role=user_role,
+            two_factor_enabled=True,
+            created_at=profile.get("created_at"),
+            updated_at=profile.get("updated_at")
+        )
+    )
 
 
-@router.post("/verify-backup-code")
+# ============================================
+# VERIFICAR CÓDIGO DE RESPALDO
+# ============================================
+
+@router.post("/verify-backup-code", response_model=TokenResponse)
 async def verify_backup_code(request: Request, backup_code: str, temp_token: str):
     """Verificar código de respaldo de 2FA (para cuando no se tiene el autenticador)"""
     
@@ -672,13 +678,15 @@ async def verify_backup_code(request: Request, backup_code: str, temp_token: str
     
     del two_factor_tokens[temp_token]
     
-    from ..models import UserResponse
-    
-    return {
-        "success": True,
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": UserResponse(
+    # ✅ RESPUESTA CORREGIDA: Usar TokenResponse
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        refresh_token=None,
+        requires_2fa=False,
+        temp_token=None,
+        message="Verificación con código de respaldo exitosa",
+        user=UserResponse(
             id=user_id,
             email=email,
             full_name=profile.get("full_name"),
@@ -686,6 +694,9 @@ async def verify_backup_code(request: Request, backup_code: str, temp_token: str
             banner_url=profile.get("banner_url"),
             currency=profile.get("currency", "USD"),
             monthly_budget=float(profile.get("monthly_budget", 1000)) if profile.get("monthly_budget") else 1000.0,
-            role=user_role  # 👈 INCLUIR EL ROL
+            role=user_role,
+            two_factor_enabled=True,
+            created_at=profile.get("created_at"),
+            updated_at=profile.get("updated_at")
         )
-    }
+    )
