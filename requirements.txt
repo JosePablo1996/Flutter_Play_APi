@@ -35,6 +35,11 @@ qrcode==7.4.2             # Generación de códigos QR
 pillow==10.4.0            # Procesamiento de imágenes (requerido por qrcode)
 
 # ============================================
+# DETECCIÓN AVANZADA DE DISPOSITIVOS (NUEVO en v2.6.0)
+# ============================================
+user-agents==2.2.0        # Parseo avanzado de User-Agent para detectar marca y modelo
+
+# ============================================
 # Utilidades adicionales (opcionales)
 # ============================================
 # python-dateutil==2.9.0   # Manejo avanzado de fechas
