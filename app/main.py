@@ -14,7 +14,7 @@ app = FastAPI(
     ### Caracteristicas principales:
     * **Autenticacion**: Registro, login tradicional, y login con OTP
     * **2FA**: Autenticacion de Dos Factores con Google Authenticator
-    * **Passkeys**: Autenticacion biometrica mit Windows Hello, Face ID, Touch ID
+    * **Passkeys**: Autenticacion biometrica con Windows Hello, Face ID, Touch ID
     * **Gestion de gastos**: CRUD completo de gastos
     * **Categorias**: Categorias predefinidas y personalizables
     * **Presupuestos**: Control de presupuestos por categoria
@@ -24,7 +24,7 @@ app = FastAPI(
     * **Sesiones activas**: Gestion de dispositivos conectados
     * **Historial de accesos**: Registro completo de inicios de sesion
 
-    ### 🆕 Novedades v2.6.0:
+    ### 🎯 Novedades v2.6.0:
 
     #### Passkey con registro completo
     - Los inicios de sesion con Passkey ahora se registran en `login_history` (tipo `passkey`)
@@ -72,10 +72,10 @@ app = FastAPI(
     | POST | `/webauthn/register/begin` | Iniciar registro de passkey |
     | POST | `/webauthn/register/complete` | Completar registro de passkey |
     | POST | `/webauthn/login/begin` | Iniciar autenticacion con passkey |
-    | POST | `/webauthn/login/begin-without-email` | Iniciar autenticacion sin email 🆕 |
+    | POST | `/webauthn/login/begin-without-email` | Iniciar autenticacion sin email 🎯 |
     | POST | `/webauthn/login/complete` | Completar autenticacion con passkey |
     | GET | `/webauthn/credentials` | Listar passkeys del usuario |
-    | GET | `/webauthn/status` | Obtener estado de passkeys 🆕 |
+    | GET | `/webauthn/status` | Obtener estado de passkeys 🎯 |
     | DELETE | `/webauthn/credentials/{id}` | Eliminar passkey |
 
     #### Gastos (`/api/v1/expenses`)
@@ -122,13 +122,13 @@ app = FastAPI(
     | GET | `/sessions/activity` | Obtener historial de actividad |
     | GET | `/sessions/login-history` | Obtener historial de logins |
     | GET | `/sessions/security-changes` | Obtener cambios de seguridad |
-    | GET | `/sessions/security-stats` | Obtener estadisticas de seguridad 🆕 |
+    | GET | `/sessions/security-stats` | Obtener estadisticas de seguridad 🎯 |
 
     ### Autenticacion:
     La mayoria de los endpoints requieren un token JWT en el header:
     `Authorization: Bearer <token>`
 
-    ### 🆕 Novedades de seguridad (v2.6.0):
+    ### 🎯 Novedades de seguridad (v2.6.0):
     - **Registro completo de Passkey**: Ahora cada inicio de sesion con Passkey queda registrado
     - **Estadisticas mejoradas**: El endpoint `/security-stats` ahora incluye `has_passkey`
     - **Mejor puntuacion**: Los usuarios con Passkey obtienen +20 puntos en su puntuacion de seguridad
@@ -147,25 +147,41 @@ app = FastAPI(
 )
 
 # ============================================
-# CONFIGURACION CORS
+# CONFIGURACION CORS - CORREGIDA PARA PRODUCCION
 # ============================================
 
+# ✅ Lista de orígenes permitidos (CORS)
 origins = [
+    # Desarrollo local
     "http://localhost:5173",
     "http://localhost:5174",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8000",
-    "https://flutterplay.com",
+    "http://localhost:4173",  # Vite preview
+    # ✅ Producción - Frontend en Render
+    "https://flutter-play-web.onrender.com",
+    # ✅ La propia API
+    "https://flutter-play-api.onrender.com",
+    # ✅ Dominios personalizados (agregar si los tienes)
+    # "https://flutterplay.com",
+    # "https://www.flutterplay.com",
 ]
 
+# ✅ Configuración CORS mejorada
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_origins=origins,              # Orígenes específicos
+    allow_credentials=True,             # Permitir cookies/credenciales
+    allow_methods=["*"],                # Permitir todos los métodos HTTP
+    allow_headers=["*"],                # Permitir todos los headers
+    expose_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-Request-ID",
+        "X-Response-Time",
+    ],                                   # Headers expuestos al cliente
+    max_age=3600,                        # Cache de preflight (1 hora)
 )
 
 # ============================================
