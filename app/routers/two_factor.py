@@ -14,6 +14,10 @@ from ..services.email_service import EmailService
 from ..models import TokenResponse, UserResponse
 import os
 from supabase import create_client
+from dotenv import load_dotenv
+
+# ✅ Cargar variables de entorno
+load_dotenv()
 
 router = APIRouter(prefix="/auth/2fa", tags=["2FA"])
 
@@ -317,39 +321,57 @@ async def setup_2fa(
 ):
     """Generar secreto y QR para configurar 2FA - CON VERIFICACIÓN DE CONTRASEÑA CORREGIDA"""
     
-    supabase = get_supabase_client()
     user_id = current_user.get("sub")
     email = current_user.get("email")
-    client_info = get_client_info(request)
     
-    print(f"🔐 [2FA-SETUP] Configurando 2FA para: {email}")
+    print(f"🔐 [2FA-SETUP] ==================== INICIO ====================")
+    print(f"🔐 [2FA-SETUP] User ID: {user_id}")
+    print(f"🔐 [2FA-SETUP] Email: {email}")
     print(f"🔐 [2FA-SETUP] Contraseña recibida: {'****' if setup_data.password else 'vacía'}")
     print(f"🔐 [2FA-SETUP] Longitud de contraseña: {len(setup_data.password) if setup_data.password else 0}")
     
-    # ✅ VERIFICAR CONTRASEÑA - Usando el mismo método que el login
+    # ✅ Obtener variables de entorno directamente
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+    
+    print(f"🔐 [2FA-SETUP] SUPABASE_URL: {SUPABASE_URL[:20] + '...' if SUPABASE_URL else 'NO DEFINIDA'}")
+    print(f"🔐 [2FA-SETUP] SUPABASE_ANON_KEY: {SUPABASE_ANON_KEY[:15] + '...' if SUPABASE_ANON_KEY else 'NO DEFINIDA'}")
+    
+    # ✅ Verificar que las variables existen
+    if not SUPABASE_URL:
+        print(f"❌ [2FA-SETUP] SUPABASE_URL no configurada")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SUPABASE_URL no configurada en el servidor"
+        )
+    
+    if not SUPABASE_ANON_KEY:
+        print(f"❌ [2FA-SETUP] SUPABASE_ANON_KEY no configurada")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SUPABASE_ANON_KEY no configurada en el servidor"
+        )
+    
+    # ✅ VERIFICAR CONTRASEÑA
     try:
-        SUPABASE_URL = os.getenv("SUPABASE_URL")
-        SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-        
-        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Error de configuración del servidor"
-            )
-        
+        # Crear cliente con las variables cargadas
         supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
         
-        # ✅ Intentar iniciar sesión con las credenciales proporcionadas
+        print(f"🔐 [2FA-SETUP] Cliente Supabase creado correctamente")
+        
+        # Intentar iniciar sesión
         auth_response = supabase_auth.auth.sign_in_with_password({
             "email": email,
             "password": setup_data.password
         })
         
         print(f"✅ [2FA-SETUP] Contraseña verificada correctamente para: {email}")
+        print(f"✅ [2FA-SETUP] Usuario autenticado: {auth_response.user.email if auth_response.user else 'No user'}")
         
     except Exception as e:
         print(f"❌ [2FA-SETUP] Error verificando contraseña para: {email}")
         print(f"❌ [2FA-SETUP] Error detallado: {str(e)}")
+        print(f"❌ [2FA-SETUP] Tipo de error: {type(e).__name__}")
         
         # Verificar si el error es por contraseña incorrecta
         error_str = str(e).lower()
@@ -390,6 +412,7 @@ async def setup_2fa(
     }
     
     print(f"✅ [2FA-SETUP] Secreto generado para: {email}")
+    print(f"🔐 [2FA-SETUP] ==================== FIN ====================")
     
     return {
         "secret": secret,
