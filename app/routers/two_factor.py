@@ -12,6 +12,8 @@ from .auth import get_current_user, two_factor_tokens
 from ..database import get_supabase_client, get_supabase_admin
 from ..services.email_service import EmailService
 from ..models import TokenResponse, UserResponse
+import os
+from supabase import create_client
 
 router = APIRouter(prefix="/auth/2fa", tags=["2FA"])
 
@@ -303,35 +305,66 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
     return {"enabled": enabled}
 
 
+# ============================================
+# ✅ ENDPOINT CORREGIDO: SETUP 2FA
+# ============================================
+
 @router.post("/setup")
-async def setup_2fa(request: Request, setup_data: Setup2FARequest, current_user: dict = Depends(get_current_user)):
-    """Generar secreto y QR para configurar 2FA"""
+async def setup_2fa(
+    request: Request,
+    setup_data: Setup2FARequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Generar secreto y QR para configurar 2FA - CON VERIFICACIÓN DE CONTRASEÑA CORREGIDA"""
+    
     supabase = get_supabase_client()
     user_id = current_user.get("sub")
     email = current_user.get("email")
     client_info = get_client_info(request)
     
     print(f"🔐 [2FA-SETUP] Configurando 2FA para: {email}")
+    print(f"🔐 [2FA-SETUP] Contraseña recibida: {'****' if setup_data.password else 'vacía'}")
+    print(f"🔐 [2FA-SETUP] Longitud de contraseña: {len(setup_data.password) if setup_data.password else 0}")
     
-    # Verificar contraseña actual
+    # ✅ VERIFICAR CONTRASEÑA - Usando el mismo método que el login
     try:
-        from supabase import create_client
-        import os
         SUPABASE_URL = os.getenv("SUPABASE_URL")
         SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
         
+        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Error de configuración del servidor"
+            )
+        
         supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-        supabase_auth.auth.sign_in_with_password({
+        
+        # ✅ Intentar iniciar sesión con las credenciales proporcionadas
+        auth_response = supabase_auth.auth.sign_in_with_password({
             "email": email,
             "password": setup_data.password
         })
+        
+        print(f"✅ [2FA-SETUP] Contraseña verificada correctamente para: {email}")
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Contraseña incorrecta"
-        )
+        print(f"❌ [2FA-SETUP] Error verificando contraseña para: {email}")
+        print(f"❌ [2FA-SETUP] Error detallado: {str(e)}")
+        
+        # Verificar si el error es por contraseña incorrecta
+        error_str = str(e).lower()
+        if "invalid login credentials" in error_str or "invalid credentials" in error_str:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Contraseña incorrecta. Por favor, verifica tu contraseña."
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Error al verificar la contraseña: {str(e)}"
+            )
     
-    # Generar secreto
+    # ✅ Generar secreto 2FA
     secret = pyotp.random_base32()
     
     # Crear URI para Google Authenticator
@@ -464,7 +497,7 @@ async def disable_2fa(request: Request, current_user: dict = Depends(get_current
 
 
 # ============================================
-# 👇 ENDPOINT CORREGIDO - VERIFY LOGIN 2FA
+# VERIFICAR LOGIN 2FA
 # ============================================
 
 @router.post("/verify-login", response_model=TokenResponse)
@@ -525,16 +558,16 @@ async def verify_login_2fa(request: Request, request_data: VerifyLogin2FARequest
     # Generar nuevo token JWT
     from ..auth import create_access_token
     
-    # OBTENER EL PERFIL COMPLETO CON EL ROL
+    # Obtener el perfil completo con el rol
     supabase = get_supabase_client()
     profile_response = supabase.table("profiles").select("*").eq("id", user_id).execute()
     profile = profile_response.data[0] if profile_response.data else {}
     
-    # OBTENER EL ROL DEL USUARIO
+    # Obtener el rol del usuario
     user_role = profile.get("role", "user")
     print(f"🔐 [2FA-VERIFY-LOGIN] Rol del usuario: {user_role}")
     
-    # CREAR TOKEN CON EL ROL INCLUIDO
+    # Crear token con el rol incluido
     access_token = create_access_token(data={
         "sub": user_id, 
         "email": email, 
@@ -542,7 +575,7 @@ async def verify_login_2fa(request: Request, request_data: VerifyLogin2FARequest
     })
     print(f"✅ [2FA-VERIFY-LOGIN] Access token generado con rol: {user_role}")
     
-    # CREAR SESIÓN DESPUÉS DE 2FA
+    # Crear sesión después de 2FA
     try:
         await create_user_session(request, user_id, email, access_token)
         print(f"✅ [2FA-VERIFY-LOGIN] Sesión creada exitosamente para {email}")
@@ -582,7 +615,6 @@ async def verify_login_2fa(request: Request, request_data: VerifyLogin2FARequest
     
     print(f"✅ [2FA-VERIFY-LOGIN] Login completado exitosamente para: {email}")
     
-    # ✅ RESPUESTA CORREGIDA: Usar TokenResponse en lugar de dict
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
@@ -678,7 +710,6 @@ async def verify_backup_code(request: Request, backup_code: str, temp_token: str
     
     del two_factor_tokens[temp_token]
     
-    # ✅ RESPUESTA CORREGIDA: Usar TokenResponse
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
