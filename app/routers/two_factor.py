@@ -308,9 +308,8 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
     print(f"🔐 [2FA-STATUS] Usuario {email} - 2FA activado: {enabled}")
     return {"enabled": enabled}
 
-
 # ============================================
-# ✅ ENDPOINT CORREGIDO: SETUP 2FA
+# ✅ ENDPOINT CORREGIDO: SETUP 2FA - VERSIÓN RENDER
 # ============================================
 
 @router.post("/setup")
@@ -319,7 +318,7 @@ async def setup_2fa(
     setup_data: Setup2FARequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Generar secreto y QR para configurar 2FA - CON VERIFICACIÓN DE CONTRASEÑA CORREGIDA"""
+    """Generar secreto y QR para configurar 2FA - VERSIÓN CORREGIDA PARA RENDER"""
     
     user_id = current_user.get("sub")
     email = current_user.get("email")
@@ -330,9 +329,9 @@ async def setup_2fa(
     print(f"🔐 [2FA-SETUP] Contraseña recibida: {'****' if setup_data.password else 'vacía'}")
     print(f"🔐 [2FA-SETUP] Longitud de contraseña: {len(setup_data.password) if setup_data.password else 0}")
     
-    # ✅ Obtener variables de entorno directamente
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+    # ✅ Obtener variables de entorno directamente (sin load_dotenv)
+    SUPABASE_URL = os.environ.get("SUPABASE_URL")
+    SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
     
     print(f"🔐 [2FA-SETUP] SUPABASE_URL: {SUPABASE_URL[:20] + '...' if SUPABASE_URL else 'NO DEFINIDA'}")
     print(f"🔐 [2FA-SETUP] SUPABASE_ANON_KEY: {SUPABASE_ANON_KEY[:15] + '...' if SUPABASE_ANON_KEY else 'NO DEFINIDA'}")
@@ -352,15 +351,17 @@ async def setup_2fa(
             detail="SUPABASE_ANON_KEY no configurada en el servidor"
         )
     
-    # ✅ VERIFICAR CONTRASEÑA
+    # ✅ VERIFICAR CONTRASEÑA - Usar el cliente de la base de datos existente
     try:
-        # Crear cliente con las variables cargadas
-        supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+        # Usar el cliente existente en lugar de crear uno nuevo
+        from ..database import get_supabase_client
+        supabase_client = get_supabase_client()
         
-        print(f"🔐 [2FA-SETUP] Cliente Supabase creado correctamente")
+        print(f"🔐 [2FA-SETUP] Cliente Supabase obtenido correctamente")
         
-        # Intentar iniciar sesión
-        auth_response = supabase_auth.auth.sign_in_with_password({
+        # ✅ Usar el método de autenticación del cliente existente
+        # Intentar iniciar sesión con las credenciales proporcionadas
+        auth_response = supabase_client.auth.sign_in_with_password({
             "email": email,
             "password": setup_data.password
         })
