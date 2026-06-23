@@ -14,10 +14,6 @@ from ..services.email_service import EmailService
 from ..models import TokenResponse, UserResponse
 import os
 from supabase import create_client
-from dotenv import load_dotenv
-
-# ✅ Cargar variables de entorno
-load_dotenv()
 
 router = APIRouter(prefix="/auth/2fa", tags=["2FA"])
 
@@ -308,8 +304,9 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
     print(f"🔐 [2FA-STATUS] Usuario {email} - 2FA activado: {enabled}")
     return {"enabled": enabled}
 
+
 # ============================================
-# ✅ ENDPOINT CORREGIDO: SETUP 2FA - VERSIÓN RENDER
+# ✅ ENDPOINT CORREGIDO: SETUP 2FA - VERSIÓN DEFINITIVA
 # ============================================
 
 @router.post("/setup")
@@ -318,7 +315,7 @@ async def setup_2fa(
     setup_data: Setup2FARequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Generar secreto y QR para configurar 2FA - VERSIÓN CORREGIDA PARA RENDER"""
+    """Generar secreto y QR para configurar 2FA"""
     
     user_id = current_user.get("sub")
     email = current_user.get("email")
@@ -329,39 +326,27 @@ async def setup_2fa(
     print(f"🔐 [2FA-SETUP] Contraseña recibida: {'****' if setup_data.password else 'vacía'}")
     print(f"🔐 [2FA-SETUP] Longitud de contraseña: {len(setup_data.password) if setup_data.password else 0}")
     
-    # ✅ Obtener variables de entorno directamente (sin load_dotenv)
-    SUPABASE_URL = os.environ.get("SUPABASE_URL")
-    SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
-    
-    print(f"🔐 [2FA-SETUP] SUPABASE_URL: {SUPABASE_URL[:20] + '...' if SUPABASE_URL else 'NO DEFINIDA'}")
-    print(f"🔐 [2FA-SETUP] SUPABASE_ANON_KEY: {SUPABASE_ANON_KEY[:15] + '...' if SUPABASE_ANON_KEY else 'NO DEFINIDA'}")
-    
-    # ✅ Verificar que las variables existen
-    if not SUPABASE_URL:
-        print(f"❌ [2FA-SETUP] SUPABASE_URL no configurada")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="SUPABASE_URL no configurada en el servidor"
-        )
-    
-    if not SUPABASE_ANON_KEY:
-        print(f"❌ [2FA-SETUP] SUPABASE_ANON_KEY no configurada")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="SUPABASE_ANON_KEY no configurada en el servidor"
-        )
-    
-    # ✅ VERIFICAR CONTRASEÑA - Usar el cliente de la base de datos existente
+    # ✅ Crear cliente de autenticación específico
     try:
-        # Usar el cliente existente en lugar de crear uno nuevo
-        from ..database import get_supabase_client
-        supabase_client = get_supabase_client()
+        SUPABASE_URL = os.environ.get("SUPABASE_URL")
+        SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
         
-        print(f"🔐 [2FA-SETUP] Cliente Supabase obtenido correctamente")
+        print(f"🔐 [2FA-SETUP] SUPABASE_URL: {SUPABASE_URL[:20] + '...' if SUPABASE_URL else 'NO DEFINIDA'}")
+        print(f"🔐 [2FA-SETUP] SUPABASE_ANON_KEY: {SUPABASE_ANON_KEY[:15] + '...' if SUPABASE_ANON_KEY else 'NO DEFINIDA'}")
         
-        # ✅ Usar el método de autenticación del cliente existente
-        # Intentar iniciar sesión con las credenciales proporcionadas
-        auth_response = supabase_client.auth.sign_in_with_password({
+        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Variables de entorno no configuradas"
+            )
+        
+        # ✅ Crear cliente de autenticación
+        supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+        
+        print(f"🔐 [2FA-SETUP] Cliente de autenticación creado correctamente")
+        
+        # ✅ Verificar contraseña
+        auth_response = supabase_auth.auth.sign_in_with_password({
             "email": email,
             "password": setup_data.password
         })
@@ -374,7 +359,6 @@ async def setup_2fa(
         print(f"❌ [2FA-SETUP] Error detallado: {str(e)}")
         print(f"❌ [2FA-SETUP] Tipo de error: {type(e).__name__}")
         
-        # Verificar si el error es por contraseña incorrecta
         error_str = str(e).lower()
         if "invalid login credentials" in error_str or "invalid credentials" in error_str:
             raise HTTPException(
