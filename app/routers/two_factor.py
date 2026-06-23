@@ -306,7 +306,7 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
 
 
 # ============================================
-# ✅ ENDPOINT CORREGIDO: SETUP 2FA - VERSIÓN DEFINITIVA
+# ✅ ENDPOINT CORREGIDO: SETUP 2FA - VERSIÓN CON AUTH CLIENT
 # ============================================
 
 @router.post("/setup")
@@ -326,52 +326,67 @@ async def setup_2fa(
     print(f"🔐 [2FA-SETUP] Contraseña recibida: {'****' if setup_data.password else 'vacía'}")
     print(f"🔐 [2FA-SETUP] Longitud de contraseña: {len(setup_data.password) if setup_data.password else 0}")
     
-    # ✅ Crear cliente de autenticación específico
+    # ✅ OBTENER VARIABLES DE ENTORNO
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+    
+    print(f"🔐 [2FA-SETUP] SUPABASE_URL: {SUPABASE_URL[:20] + '...' if SUPABASE_URL else 'NO DEFINIDA'}")
+    print(f"🔐 [2FA-SETUP] SUPABASE_ANON_KEY: {SUPABASE_ANON_KEY[:15] + '...' if SUPABASE_ANON_KEY else 'NO DEFINIDA'}")
+    
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        print(f"❌ [2FA-SETUP] Variables de entorno no configuradas")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Variables de entorno no configuradas"
+        )
+    
+    # ✅ CREAR CLIENTE DE AUTENTICACIÓN
     try:
-        SUPABASE_URL = os.environ.get("SUPABASE_URL")
-        SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
+        # Usar el método POST directamente a la API REST de Supabase
+        import httpx
         
-        print(f"🔐 [2FA-SETUP] SUPABASE_URL: {SUPABASE_URL[:20] + '...' if SUPABASE_URL else 'NO DEFINIDA'}")
-        print(f"🔐 [2FA-SETUP] SUPABASE_ANON_KEY: {SUPABASE_ANON_KEY[:15] + '...' if SUPABASE_ANON_KEY else 'NO DEFINIDA'}")
+        # URL para verificar contraseña usando la API REST de Supabase
+        auth_url = f"{SUPABASE_URL}/auth/v1/token?grant_type=password"
         
-        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Variables de entorno no configuradas"
-            )
+        headers = {
+            "apikey": SUPABASE_ANON_KEY,
+            "Content-Type": "application/json"
+        }
         
-        # ✅ Crear cliente de autenticación
-        supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-        
-        print(f"🔐 [2FA-SETUP] Cliente de autenticación creado correctamente")
-        
-        # ✅ Verificar contraseña
-        auth_response = supabase_auth.auth.sign_in_with_password({
+        data = {
             "email": email,
             "password": setup_data.password
-        })
+        }
         
-        print(f"✅ [2FA-SETUP] Contraseña verificada correctamente para: {email}")
-        print(f"✅ [2FA-SETUP] Usuario autenticado: {auth_response.user.email if auth_response.user else 'No user'}")
+        print(f"🔐 [2FA-SETUP] Verificando contraseña con Supabase Auth API...")
         
+        async with httpx.AsyncClient() as client:
+            response = await client.post(auth_url, headers=headers, json=data)
+            
+            if response.status_code != 200:
+                print(f"❌ [2FA-SETUP] Contraseña incorrecta. Status: {response.status_code}")
+                print(f"❌ [2FA-SETUP] Respuesta: {response.text}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Contraseña incorrecta. Por favor, verifica tu contraseña."
+                )
+            
+            auth_result = response.json()
+            print(f"✅ [2FA-SETUP] Contraseña verificada correctamente para: {email}")
+            print(f"✅ [2FA-SETUP] Usuario autenticado: {auth_result.get('user', {}).get('email', 'No user')}")
+        
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ [2FA-SETUP] Error verificando contraseña para: {email}")
         print(f"❌ [2FA-SETUP] Error detallado: {str(e)}")
         print(f"❌ [2FA-SETUP] Tipo de error: {type(e).__name__}")
-        
-        error_str = str(e).lower()
-        if "invalid login credentials" in error_str or "invalid credentials" in error_str:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Contraseña incorrecta. Por favor, verifica tu contraseña."
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Error al verificar la contraseña: {str(e)}"
-            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Error al verificar la contraseña: {str(e)}"
+        )
     
-    # ✅ Generar secreto 2FA
+    # ✅ GENERAR SECRETO 2FA
     secret = pyotp.random_base32()
     
     # Crear URI para Google Authenticator
